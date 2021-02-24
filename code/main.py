@@ -1,130 +1,72 @@
-from PIL import Image, ImageFilter
 import glob
 import os
 import numpy as np
 import cv2
+from typing import Tuple
 
 data_path = '../data/images_001'
-result_path = '../Results/images_001_mean_erosion_dilation'
-threshold = 100
-# custom_range = (0, 150)
-morph_kernel_size = 90
+result_path = '../Results/images_001'
+dilation_size = (91, 91)
 
 
-class RegionGrowing:
-    def __init__(self, image, start_point, threshold=100, custom_range=None):
-        self.image = image
-        self.pixels = image.load()
-        self.image_size = image.size
-        self.start_point = start_point
-        self.threshold = threshold
-        if custom_range is None:
-            self.accepted_range = (pixels[start_point] - threshold, pixels[start_point] + threshold)
-        else:
-            self.accepted_range = custom_range
-    
-    def get_neighbors(self, point):
-        neighbors = []
-        for i in [-1, 1]:
-            new_x = point[0] + i
-            if new_x < 0 or new_x >= self.image_size[0]:
-                continue
-            neighbors.append((new_x, point[1]))
-        for j in [-1, 1]:
-            new_y = point[1] + j
-            if new_y < 0 or new_y >= self.image_size[1]:
-                continue
-            neighbors.append((point[0], new_y))
-                
-        return neighbors
+def find_contour_of_point(contours, point):
+    for contour in contours:
+        if cv2.pointPolygonTest(contour, point, False) == 1:
+            return contour
+    return None
 
 
-    def is_similar(self, point):
-        return self.accepted_range[0] <= self.pixels[point] and self.pixels[point] <= self.accepted_range[1]
-        # return np.abs(self.pixels[point] - self.pixels[self.start_point]) <= self.threshold
+def find_nearest_contour(contours, point):
+    max_dist = -float('inf')
+    selected_contour = None
+    for contour in contours:
+        dist = cv2.pointPolygonTest(contour, point, True)
+        if dist > max_dist:
+            max_dist = dist
+            selected_contour = contour
+    return selected_contour
 
 
-    def find_region(self):
-        checked = set()
-        to_check = set()
-        similar_points = set()
-        to_check.add(self.start_point)
-        while(to_check):
-            point = to_check.pop()
-            checked.add(point)
-            # print(point)
-            if self.is_similar(point):
-                similar_points.add(point)
-                for neighbor in self.get_neighbors(point):
-                    if neighbor not in checked:
-                        to_check.add(neighbor)
-        return similar_points
-
-
-def mean_pixels(image):
-    sum = 0
-    for i in range(image.size[0]):
-        for j in range(image.size[1]):
-            sum += image.getpixel((i, j))
-    return sum/(image.size[0]*image.size[1])
-
-
-# def dilate(image):
-    
+def dilated_bounding_box(contour):
+    x, y, w, h = cv2.boundingRect(contour)
+    return max(0, x-dilation_size[0]), max(0, y-dilation_size[1]), w + 2*dilation_size[0], h + 2*dilation_size[1]
 
 
 if __name__ == '__main__':
     filelist = glob.glob(os.path.join(data_path, '*'))
-    print(filelist)
-    for file_name in filelist[:1]:
-        image = Image.open(file_name).convert('L')
-        # print(image.size)
-        mean_brightness = mean_pixels(image)
-        custom_range = (1, mean_brightness)
-        print('mean_pixels(image):', mean_brightness)
-        start_point = (int((3*image.size[0]/5)//2), image.size[1]//2)
-        # region_growing = RegionGrowing(image, start_point, threshold=threshold)
-        region_growing = RegionGrowing(image, start_point, custom_range=custom_range)
-        region = region_growing.find_region()
-        
-        pixels = image.load()
-        
-        """
-        new_image = Image.new('L', image.size)
-        for point in region:
-            new_image.putpixel(point, pixels[point])
-        """
-        
-        new_image = np.zeros(image.size)
-        for point in region:
-            new_image[point] = pixels[point]
-        new_image = Image.fromarray(new_image.transpose().astype(np.uint8))
-        """
-        for i in range(image.size[0]):
-            for j in range(image.size[1]):
-                if pixels[i, j] > threshold:
-                    pixels[i, j] = 0
-        """
-        
-        #  dilation
-        # new_image = new_image.filter(ImageFilter.MinFilter(5))
-        
-        kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
-        # dilated_img = cv2.dilate(np.array(new_image), kernel, iterations=1)
-        eroded_img = cv2.erode(np.array(new_image), kernel, iterations=1)
-        
-        # image = np.array(image)
-        # print(image.shape)
-        # print(image[image.shape[0]//2, image.shape[1]//2])
-        # image.show()
-        # print(os.path.basename(file_name))
-        
-        # cv2.imshow('Dilation', dilated_img)
-        cv2.imwrite(os.path.join(result_path, os.path.basename(file_name)), eroded_img)
-        
-        # new_image.save(os.path.join(result_path, os.path.basename(file_name)))
-        image.close()
-        new_image.close()
-        
-        # cv2.waitKey(0)
     
+    for file_name in filelist:
+        image_gray = cv2.imread(file_name, cv2.IMREAD_GRAYSCALE)
+        # image_gray = image_gray[int(1/8*image_gray.shape[0]):int(7/8*image_gray.shape[0]), int(1/8*image_gray.shape[1]):int(7/8*image_gray.shape[1])]
+        # print(image_gray.shape)
+        mean_brightness = np.mean(image_gray)
+        custom_range = (1, mean_brightness)
+        
+        print('mean_pixels(image):', mean_brightness)
+        
+        im_bw = 255 - cv2.threshold(image_gray, int(mean_brightness), 255, cv2.THRESH_BINARY)[1]
+        
+        
+        kernel = np.ones(dilation_size, dtype=np.uint8)
+        im_bw = cv2.erode(im_bw, kernel, iterations=1)
+        
+        contours, hierarchy = cv2.findContours(im_bw, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        
+        left_point = (int((3*image_gray.shape[0]/5)//2), image_gray.shape[1]//2)
+        right_point = (int((7*image_gray.shape[0]/5)//2), image_gray.shape[1]//2)
+        
+        left_contour = find_nearest_contour(contours, left_point)
+        right_contour = find_nearest_contour(contours, right_point)
+                
+        im_bgr = cv2.cvtColor(image_gray, cv2.COLOR_GRAY2BGR)
+        cv2.drawContours(im_bgr, [left_contour, right_contour], -1, (0,255,0), 3)
+        
+        xl, yl, wl, hl = dilated_bounding_box(left_contour)
+        xr, yr, wr, hr = dilated_bounding_box(right_contour)
+        
+        cv2.rectangle(im_bgr,(xl,yl),(xl+wl,yl+hl),(200,0,0),2)
+        cv2.rectangle(im_bgr,(xr,yr),(xr+wr,yr+hr),(200,0,0),2)
+        
+        # cv2.imshow('draw contours',im_bgr)
+        # cv2.waitKey(0)
+        cv2.imwrite(os.path.join(result_path, os.path.basename(file_name)), im_bgr)
