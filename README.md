@@ -1,5 +1,5 @@
 # lung_image_preprocessing
-This repository uses preprocessing technics such as image growing and erosion and dilation to crop the lungs from the rest of the image
+This repository uses preprocessing technics such as image growing and erosion and dilation to crop the lungs from chest X-ray images
 
 ## Prerequisites
 
